@@ -77,19 +77,45 @@ Ship a tiny Rails plugin exposing `rb_*` tables verbatim as JSON (`/rb_compat/sp
 2. **Re-derive burndown on the fly** from `journals` (stock REST exposes them via `?include=journals`) — this is what `rb_sprint_burndown.rb` itself does internally, so the math is recoverable; the daily cache is not load-bearing for correctness, only for speed.
 3. Ship a read-only compat plugin (Option 2) **only** if a specific user has unrecoverable Backlogs-specific data that must render verbatim during cutover. Remove it post-migration.
 
-## POC plan (M0.5, 1–2 days)
+## Status of the legacy plugin (verified against the upstream repo)
 
-The smallest experiment that proves the recommendation:
+- **Last real code commit: 2018-09-01** (`gh api repos/backlogs/redmine_backlogs/commits/master`). The `pushed_at` of 2023-08-17 is a branch-rename housekeeping push, not new code.
+- **Not officially archived**, but effectively abandoned (168 open issues, no releases since `v1.0.6`).
+- **Supported Redmine versions: ~2.3 through early 4.x.** Evidence in the upstream repo: `init.rb` branches on `Rails::VERSION::MAJOR < 3` and has a `Redmine::VERSION::MAJOR == 2 && MINOR >= 3` gate; `Gemfile` pins `rails ~>3.0`, `nokogiri < 1.6.0` (for Redmine 2.3), `rspec ~> 2.11`. It will **not** install on Redmine 5.0.
 
-1. **Sample environment.** Stand up a Redmine 5.0 container with the legacy plugin and a seeded DB: 1 project, 5 stories with distinct `position` and `story_points`, 1 sprint with a populated `rb_sprint_burndown` row, optional 1 release.
-2. **Pre-create stock Custom Fields** in that Redmine: `cf_backlog_position` (int), `cf_story_points` (int), `cf_remaining_hours` (int), `cf_sprint_start_date` (date on Version).
-3. **Migration script** `scripts/migrate_legacy.rb` — opens the Redmine DB read-only; for the sample project, reads `issues.position`, `issues.story_points`, `issues.remaining_hours`, `versions.sprint_start_date`; writes each via `PUT /issues/{id}.json` / `PUT /versions/{id}.json`.
-4. **Round-trip verification (ordering & points).** `GET /issues.json?project_id=X&include=custom_fields&sort=cf_<position_id>` returns stories in the legacy order with story points intact.
-5. **Burndown re-derivation.** For the sprint, `GET /issues/{id}.json?include=journals` for every issue in `fixed_version_id=<sprint>`, reconstruct remaining-SP by day, and compare numerically against the legacy `rb_sprint_burndown.burndown` series. Tolerance: exact for completed days; minor drift acceptable for the open day.
+## Consequence: migration is inherently cross-version
 
-**Success criterion:** the SPA can render the sample project's sprint board *and* burndown using only the REST API, with story ordering and points identical to the legacy UI, and burndown matching the legacy cache.
+The migration is not a single-Redmine operation. It moves data from one Redmine to a different, newer one:
 
-**Failure modes that would change the recommendation:** if `position` cannot be written via the REST CF (custom field type rejected, sort order unreliable) or if journals are insufficient to reconstruct burndown (e.g. SP changes were never journalled), fall back to Option 2 for those specific concerns.
+```
+┌──────────────────────────────┐                ┌─────────────────────────────┐
+│ SOURCE                       │                │ TARGET                      │
+│ Redmine 3.4 or 4.2           │   migration    │ Redmine 5.0+                │
+│ + legacy redmine_backlogs    │ ─────────────▶ │ + pre-created Custom Fields │
+│ + rb_* tables                │  (one-shot)    │ + redmine-backlogs-next     │
+└──────────────────────────────┘                └─────────────────────────────┘
+```
+
+This is actually a better model — anyone retiring legacy `redmine_backlogs` is also upgrading Redmine — and it sharpens the migration script's contract: read-only on the source DB, write-only over REST to the target.
+
+## POC plan (M0.5, ~2–3 days, gated on Docker)
+
+**Prerequisite:** Docker Desktop installed on the host. The POC is not runnable until that's in place.
+
+**The two-container experiment:**
+
+1. **Source container** — Redmine 3.4 (Ruby 2.3) or 4.2 (Ruby 2.6/2.7) with the legacy `redmine_backlogs` plugin installed, MySQL 5.7 backing store, seeded with: 1 project, 5 stories with distinct `position` and `story_points`, 1 sprint with a populated `rb_sprint_burndown` row, optional 1 release.
+2. **Target container** — stock Redmine 5.x with pre-created Custom Fields: `cf_backlog_position` (int), `cf_story_points` (int), `cf_remaining_hours` (int), `cf_sprint_start_date` (date on Version).
+3. **Migration script** `scripts/migrate_legacy.{py|js}` — opens the source MySQL read-only; for the sample project, reads `issues.position`, `issues.story_points`, `issues.remaining_hours`, `versions.sprint_start_date`; writes each via `PUT /issues/{id}.json` / `PUT /versions/{id}.json` against the **target** Redmine. Language: Node/TS or Python — not Ruby (we do not depend on the legacy Rails stack to migrate off it).
+4. **Round-trip verification (ordering & points).** Against the target: `GET /issues.json?project_id=X&include=custom_fields&sort=cf_<position_id>` returns stories in the legacy order with story points intact.
+5. **Burndown re-derivation.** For the sprint, `GET /issues/{id}.json?include=journals` for every issue in `fixed_version_id=<sprint>`, reconstruct remaining-SP by day, and compare numerically against the source's `rb_sprint_burndown.burndown` series. Tolerance: exact for completed days; minor drift acceptable for the open day.
+
+**Success criterion:** the SPA can render the sample project's sprint board *and* burndown from the **target** Redmine using only the REST API, with story ordering and points identical to the legacy UI, and burndown matching the legacy cache (within tolerance).
+
+**Failure modes that would change the recommendation:**
+- `position` cannot be reliably written/read as a sortable Custom Field → fall back to Option 2 for ordering.
+- Source journals are insufficient to reconstruct burndown (e.g. SP changes were never journalled in that era of Redmine) → fall back to Option 2 for burndown.
+- Legacy plugin does not run on a Ruby/Rails combination buildable today on linux/amd64 → narrow the supported source range further and document.
 
 ## Out of scope for this POC
 
