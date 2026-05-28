@@ -25,7 +25,7 @@ The original `redmine_backlogs` plugin hooked deep into Redmine's Rails models a
 | Burndown series  | Issue journals (history)    |
 | Velocity         | Completed SP per closed Version |
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full mapping and component design, and [docs/MVP.md](docs/MVP.md) for the milestone plan.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full mapping and component design, [docs/MVP.md](docs/MVP.md) for the milestone plan, and [docs/LEGACY_COMPAT.md](docs/LEGACY_COMPAT.md) for how data from the original `redmine_backlogs` plugin is migrated and rendered.
 
 ## Status
 

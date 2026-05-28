@@ -13,6 +13,9 @@ Prove the riskiest unknowns first (auth + data-model mapping, then journals/burn
 - `docker-compose.yml` for a local dev Redmine.
 - Config scaffolding: `.env.example` with `REDMINE_URL`, `REDMINE_API_KEY`, `STORY_POINTS_FIELD_ID`.
 
+### M0.5 — Legacy compat POC (1–2 days)
+Prove that data from existing legacy `redmine_backlogs` installs can be rendered through the new REST-only architecture. Plan and rationale: [LEGACY_COMPAT.md](LEGACY_COMPAT.md). Hybrid approach: one-time migration of recoverable raw columns (`position`, `story_points`, `remaining_hours`, `sprint_start_date`, releases) into stock Custom Fields, plus on-the-fly burndown re-derivation from issue journals. **Gates M1.**
+
 ### M1 — Proxy ↔ Redmine (~1 day)
 - Proxy connects to the Redmine REST API with the server-side key.
 - Fetches projects / versions / issues.
